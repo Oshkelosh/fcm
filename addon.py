@@ -12,7 +12,6 @@ from jose import jwt
 from pydantic import BaseModel, Field, SecretStr
 
 from app.addons.notifications.base import NotificationAddon
-from app.addons.notifications.helpers import post_json_webhook
 from app.addons.log import info, warning
 from app.addons.config_serialization import dump_addon_config
 
@@ -215,12 +214,6 @@ class FcmAddon(NotificationAddon):
             warning("FCM", "send_push to={} error: {}", to, exc)
             return {"success": False, "message_id": "", "error": str(exc), "to": to}
 
-    async def send_webhook(self, url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        result = await post_json_webhook(url, payload)
-        if not result.get("success"):
-            warning("FCM", "send_webhook to={} error: {}", url, result.get("error"))
-        return result
-
     def list_public_push_config(self) -> dict[str, Any] | None:
         if not self._config or not self._config.get("web_api_key"):
             return None
@@ -235,6 +228,19 @@ class FcmAddon(NotificationAddon):
         if auth_domain:
             config["authDomain"] = auth_domain
         return {"provider": self.addon_id, "config": config}
+
+    def push_service_worker_js(self) -> str | None:
+        import json
+
+        push = self.list_public_push_config()
+        if not push:
+            return None
+        firebase_config = json.dumps(push.get("config") or {})
+        return f"""importScripts('https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.14.0/firebase-messaging-compat.js');
+firebase.initializeApp({firebase_config});
+firebase.messaging();
+"""
 
     def get_routers(self) -> List[APIRouter]:
         return []
